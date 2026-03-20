@@ -51,7 +51,7 @@ fn easy_distributive(rng: &mut impl Rng) -> Problem {
 
     let instruction = "次の計算をしなさい。".to_string();
     let question = format!(
-        "次の計算をしなさい。\\\\ ({})(x^2 {} {}x {} {})",
+        "({})(x^2 {} {}x {} {})",
         format_linear(a, b, "x"),
         sign_str(c),
         c.abs(),
