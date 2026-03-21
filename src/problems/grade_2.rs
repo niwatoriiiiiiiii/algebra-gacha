@@ -12,22 +12,17 @@ use super::{Difficulty, Problem, pick};
 /// 指定難易度の2年生問題を生成して返す。
 pub fn generate(rng: &mut impl Rng, difficulty: &Difficulty) -> Problem {
     match difficulty {
-        Difficulty::Easy => {
-            // 初級: 累乗 or 式の値を等確率で選ぶ
-            if rng.gen_bool(0.5) {
-                generate_easy_power(rng)
-            } else {
-                generate_easy_expression_value(rng)
-            }
-        }
-        Difficulty::Medium => {
-            if rng.gen_bool(0.5) {
-                generate_medium_power_div(rng)
-            } else {
-                generate_medium_expression_value(rng)
-            }
-        }
-        _ => generate_easy_power(rng), // フォールバック（呼ばれないはず）
+        Difficulty::Easy => match rng.gen_range(0..3u8) {
+            0 => generate_easy_power(rng),
+            1 => generate_easy_expression_value(rng),
+            _ => generate_easy_power_frac(rng),         // 新: 分数係数の累乗
+        },
+        Difficulty::Medium => match rng.gen_range(0..3u8) {
+            0 => generate_medium_power_div(rng),
+            1 => generate_medium_expression_value(rng),
+            _ => generate_medium_power_chain(rng),       // 新: 累乗の連鎖
+        },
+        _ => generate_easy_power(rng),
     }
 }
 
@@ -337,5 +332,145 @@ mod tests {
             let p = generate(&mut rng, &Difficulty::Medium);
             assert!(!p.question_latex.is_empty());
         }
+    }
+}
+
+// ---- 初級(新): 分数係数の累乗 -----------------------------------------------
+//
+// 問題形式: (-\frac{a}{b} x^m y^n)^2
+// 平方なので符号が消え、係数は (a/b)^2 になる
+
+fn generate_easy_power_frac(rng: &mut impl Rng) -> Problem {
+    let nums: &[i32] = &[1, 2, 3];
+    let dens: &[i32] = &[2, 3, 4, 5];
+    let exps: &[u32] = &[1, 2, 3];
+
+    let a = pick(rng, nums); // 分子
+    let b = pick(rng, dens); // 分母（a と互いに素でなくても約分する）
+    let m = pick(rng, exps); // x の指数
+    let n = pick(rng, exps); // y の指数
+
+    // (-a/b * x^m * y^n)^2 = (a^2/b^2) x^{2m} y^{2n}
+    let ans_num = a * a;
+    let ans_den = b * b;
+    let g = gcd(ans_num, ans_den);
+    let ans_num_r = ans_num / g;
+    let ans_den_r = ans_den / g;
+
+    let x_exp = 2 * m;
+    let y_exp = 2 * n;
+
+    let instruction = "次の計算をしなさい。".to_string();
+    let x_part = if m == 1 { "x".to_string() } else { format!("x^{{{}}}", m) };
+    let y_part = if n == 1 { "y".to_string() } else { format!("y^{{{}}}", n) };
+    let coeff_str = if a == 1 { String::new() } else { format!("{}", a) };
+    let question = format!(
+        "\\left(-\\frac{{{}}}{{{}}}{}{}\\right)^2",
+        coeff_str.clone() + if a == 1 { "1" } else { "" }, b, x_part, y_part
+    );
+
+    let ans_coeff = if ans_den_r == 1 {
+        format!("{}", ans_num_r)
+    } else {
+        format!("\\frac{{{}}}{{{}}}", ans_num_r, ans_den_r)
+    };
+    let ans_x = if x_exp == 1 { "x".to_string() } else { format!("x^{{{}}}", x_exp) };
+    let ans_y = if y_exp == 1 { "y".to_string() } else { format!("y^{{{}}}", y_exp) };
+    let answer = format!("{}{}{}", ans_coeff, ans_x, ans_y);
+
+    let steps = vec![
+        format!("符号: (-...)^2 なので正になる"),
+        format!("係数: \\left(\\frac{{{}}}{{{}}}\\right)^2 = \\frac{{{}}}{{{}}}",
+            a, b, a*a, b*b),
+        format!("指数: x^{{{}\\times 2}} = x^{{{}}}, \\; y^{{{}\\times 2}} = y^{{{}}}",
+            m, x_exp, n, y_exp),
+        format!("答え: {}", answer),
+    ];
+
+    Problem {
+        difficulty: Difficulty::Easy,
+        instruction,
+        question_latex: question,
+        answer_latex: answer,
+        steps,
+    }
+}
+
+// ---- 中級(新): 累乗の連鎖 ---------------------------------------------------
+//
+// 問題形式: (a^m b^n)^p ÷ (a^r b^s)
+// 指数法則を2回使う問題
+
+fn generate_medium_power_chain(rng: &mut impl Rng) -> Problem {
+    let coeffs: &[i32] = &[2, 3, 4, 5];
+    let outer_exps: &[u32] = &[2, 3];
+    let inner_exps: &[u32] = &[1, 2];
+    let div_exps: &[u32] = &[1, 2, 3];
+
+    let a = pick(rng, coeffs);
+    let b = pick(rng, coeffs);
+    let m = pick(rng, inner_exps); // x の指数（累乗の中）
+    let n = pick(rng, inner_exps); // y の指数
+    let p = pick(rng, outer_exps); // 外の指数
+    let r = pick(rng, div_exps);   // 除数の x 指数
+    let s = pick(rng, div_exps);   // 除数の y 指数
+
+    // (a x^m y^n)^p ÷ (b x^r y^s)
+    // = a^p x^{mp} y^{np} ÷ b x^r y^s
+    // = (a^p / b) x^{mp-r} y^{np-s}
+
+    let x_exp = m as i32 * p as i32 - r as i32;
+    let y_exp = n as i32 * p as i32 - s as i32;
+
+    // 答えの指数が負にならないようリトライ
+    if x_exp <= 0 || y_exp <= 0 {
+        return generate_medium_power_chain(rng);
+    }
+
+    let num = i32::pow(a, p);
+    let den = b;
+    let g = gcd(num, den);
+    let num_r = num / g;
+    let den_r = den / g;
+
+    let instruction = "次の計算をしなさい。".to_string();
+    let x_in = if m == 1 { "x".to_string() } else { format!("x^{{{}}}", m) };
+    let y_in = if n == 1 { "y".to_string() } else { format!("y^{{{}}}", n) };
+    let x_div = if r == 1 { "x".to_string() } else { format!("x^{{{}}}", r) };
+    let y_div = if s == 1 { "y".to_string() } else { format!("y^{{{}}}", s) };
+    let question = format!(
+        "({}{}{}){} \\div {}{}{}",
+        a, x_in, y_in,
+        if p == 1 { String::new() } else { format!("^{{{}}}", p) },
+        b, x_div, y_div
+    );
+
+    let coeff_str = if den_r == 1 {
+        format!("{}", num_r)
+    } else {
+        format!("\\frac{{{}}}{{{}}}", num_r, den_r)
+    };
+    let ans_x = if x_exp == 1 { "x".to_string() } else { format!("x^{{{}}}", x_exp) };
+    let ans_y = if y_exp == 1 { "y".to_string() } else { format!("y^{{{}}}", y_exp) };
+    let answer = format!("{}{}{}", coeff_str, ans_x, ans_y);
+
+    let steps = vec![
+        format!("累乗を展開: {}^{{{}}} x^{{{}\\times{}}} y^{{{}\\times{}}} ÷ {}{}{}",
+            a, p, m, p, n, p, b, x_div, y_div),
+        format!("= {} x^{{{}}} y^{{{}}} ÷ {}{}{}",
+            i32::pow(a, p), m*p, n*p, b, x_div, y_div),
+        format!("係数: {} ÷ {} = {}", i32::pow(a, p), b,
+            if den_r == 1 { format!("{}", num_r) } else { format!("{}/{}", num_r, den_r) }),
+        format!("指数: x^{{{}-{}}} = x^{{{}}}, y^{{{}-{}}} = y^{{{}}}",
+            m*p, r, x_exp, n*p, s, y_exp),
+        format!("答え: {}", answer),
+    ];
+
+    Problem {
+        difficulty: Difficulty::Medium,
+        instruction,
+        question_latex: question,
+        answer_latex: answer,
+        steps,
     }
 }

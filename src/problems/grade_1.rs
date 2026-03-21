@@ -18,7 +18,11 @@ use super::{Difficulty, Problem, coeff_str, latex_frac, pick};
 ///
 /// 現在は初級パターンのみ実装。
 pub fn generate(rng: &mut impl Rng) -> Problem {
-    generate_easy_distributive(rng)
+    match rng.gen_range(0..3u8) {
+        0 => generate_easy_distributive(rng),   // 分数係数の分配法則
+        1 => generate_easy_integer(rng),         // 整数係数の分配法則
+        _ => generate_easy_triple(rng),          // 3項の分配法則
+    }
 }
 
 // ---- 初級: 分配法則（係数が分数）--------------------------------------------
@@ -44,7 +48,7 @@ fn generate_easy_distributive(rng: &mut impl Rng) -> Problem {
         // (A x + B) と見せかけて展開すると A/p x + B/p になる。
         // ここでの a, b, c, d は「かっこの中の見た目の整数」である。
 
-        // 仕様変更: かっこの中の数値は必ずしも p, q の倍数ではないようにする！
+        // 仕様変更: かっこの中の数値は必ずしも p, q の倍数ではないようにする
         // これによって答えが分数になる。
 
         let a = pick(rng, &[1i32, 2, 3, 4, 5]);
@@ -239,5 +243,150 @@ mod tests {
             assert!(!p.answer_latex.is_empty());
             assert_eq!(p.difficulty, Difficulty::Easy);
         }
+    }
+}
+
+// ---- 初級: 整数係数の分配法則（2パターン目）----------------------------------
+//
+// 問題形式: A(ax + b) - B(cx + d)
+// 係数はすべて整数で、計算力を見る基本問題
+
+pub fn generate_easy_integer(rng: &mut impl Rng) -> Problem {
+    let outer: &[i32] = &[2, 3, 4, 5, 6];
+    let inner_coeffs: &[i32] = &[1, 2, 3, 4, 5];
+    let consts: &[i32] = &[-6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6];
+
+    let cap_a = pick(rng, outer);
+    let cap_b = pick(rng, outer);
+    let a = pick(rng, inner_coeffs);
+    let b = pick(rng, consts);
+    let c = pick(rng, inner_coeffs);
+    let d = pick(rng, consts);
+
+    // A(ax+b) - B(cx+d) = (Aa-Bc)x + (Ab-Bd)
+    let x_coeff = cap_a * a - cap_b * c;
+    let const_term = cap_a * b - cap_b * d;
+
+    // x係数が0はスキップ
+    if x_coeff == 0 {
+        return generate_easy_integer(rng);
+    }
+
+    let instruction = "次の計算をしなさい。".to_string();
+    let inner1 = if b >= 0 {
+        format!("{}x + {}", a, b)
+    } else {
+        format!("{}x - {}", a, b.abs())
+    };
+    let inner2 = if d >= 0 {
+        format!("{}x + {}", c, d)
+    } else {
+        format!("{}x - {}", c, d.abs())
+    };
+    let question = format!("{}({}) - {}({})", cap_a, inner1, cap_b, inner2);
+
+    let answer = if const_term == 0 {
+        super::coeff_str(x_coeff, "x")
+    } else if const_term > 0 {
+        format!("{} + {}", super::coeff_str(x_coeff, "x"), const_term)
+    } else {
+        format!("{} - {}", super::coeff_str(x_coeff, "x"), const_term.abs())
+    };
+
+    let steps = vec![
+        format!("分配する: {}・{}x + {}・{} - {}・{}x - {}・{}",
+            cap_a, a, cap_a, b, cap_b, c, cap_b, d),
+        format!("xの係数: {}・{} - {}・{} = {}", cap_a, a, cap_b, c, x_coeff),
+        format!("定数項: {}・{} - {}・{} = {}", cap_a, b, cap_b, d, const_term),
+        format!("答え: {}", answer),
+    ];
+
+    Problem {
+        difficulty: super::Difficulty::Easy,
+        instruction,
+        question_latex: question,
+        answer_latex: answer,
+        steps,
+    }
+}
+
+// ---- 初級: 3項の分配法則（3パターン目）----------------------------------------
+//
+// 問題形式: A(ax + b) + B(cx + d) + C(ex + f)
+
+pub fn generate_easy_triple(rng: &mut impl Rng) -> Problem {
+    let outer: &[i32] = &[2, 3, 4, 5];
+    let inner_coeffs: &[i32] = &[1, 2, 3];
+    let consts: &[i32] = &[-4, -3, -2, -1, 1, 2, 3, 4];
+    let signs: &[i32] = &[1, -1];
+
+    let cap_a = pick(rng, outer);
+    let cap_b = pick(rng, outer);
+    let cap_c = pick(rng, outer);
+    let s1 = pick(rng, signs);
+    let s2 = pick(rng, signs);
+    let a = pick(rng, inner_coeffs);
+    let b = pick(rng, consts);
+    let c = pick(rng, inner_coeffs);
+    let d = pick(rng, consts);
+    let e = pick(rng, inner_coeffs);
+    let f = pick(rng, consts);
+
+    // A(ax+b) ±s1 B(cx+d) ±s2 C(ex+f)
+    let x_coeff = cap_a * a + s1 * cap_b * c + s2 * cap_c * e;
+    let const_term = cap_a * b + s1 * cap_b * d + s2 * cap_c * f;
+
+    if x_coeff == 0 {
+        return generate_easy_triple(rng);
+    }
+
+    let sign_str1 = if s1 > 0 { "+" } else { "-" };
+    let sign_str2 = if s2 > 0 { "+" } else { "-" };
+
+    let fmt_inner = |coeff: i32, con: i32| -> String {
+        if con >= 0 { format!("{}x + {}", coeff, con) }
+        else { format!("{}x - {}", coeff, con.abs()) }
+    };
+
+    let instruction = "次の計算をしなさい。".to_string();
+    let question = format!("{}({}) {} {}({}) {} {}({})",
+        cap_a, fmt_inner(a, b),
+        sign_str1, cap_b, fmt_inner(c, d),
+        sign_str2, cap_c, fmt_inner(e, f)
+    );
+
+    let answer = if const_term == 0 {
+        super::coeff_str(x_coeff, "x")
+    } else if const_term > 0 {
+        format!("{} + {}", super::coeff_str(x_coeff, "x"), const_term)
+    } else {
+        format!("{} - {}", super::coeff_str(x_coeff, "x"), const_term.abs())
+    };
+
+    let steps = vec![
+        format!("各かっこを展開する"),
+        format!("xの係数: {} {} {} {} {} = {}",
+            cap_a * a,
+            if s1 > 0 { "+" } else { "-" },
+            cap_b * c,
+            if s2 > 0 { "+" } else { "-" },
+            cap_c * e,
+            x_coeff),
+        format!("定数項: {} {} {} {} {} = {}",
+            cap_a * b,
+            if s1 * d >= 0 { "+" } else { "-" },
+            (s1 * cap_b * d).abs(),
+            if s2 * f >= 0 { "+" } else { "-" },
+            (s2 * cap_c * f).abs(),
+            const_term),
+        format!("答え: {}", answer),
+    ];
+
+    Problem {
+        difficulty: super::Difficulty::Easy,
+        instruction,
+        question_latex: question,
+        answer_latex: answer,
+        steps,
     }
 }
